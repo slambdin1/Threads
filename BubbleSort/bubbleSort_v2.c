@@ -15,8 +15,12 @@ struct ThreadRequest {
 
 /* Global Variables */
 pthread_mutex_t * border_lock;
+pthread_mutex_t * sort_lock;
 pthread_cond_t  * thread_cond;
+pthread_t * thread_list;
 int * num_list;
+int * sort_list;
+
 /* End of global variables */
 
 /* Function declarations */
@@ -40,12 +44,15 @@ int main(int argc, char * argv[]) {
    file = openFile(argv[2]);
 
    int num_of_ints = readFileHeader(file);
-   printf("Num of integers to be sorted: %d \n", num_of_ints);
 
    int num_array[num_of_ints];
 
    num_list = malloc(sizeof(int)*num_of_ints);
    num_list = num_array;
+
+   int sort_array[num_of_ints];
+   sort_list = malloc(sizeof(int)*num_of_ints);
+   sort_list = sort_array;
 
    readFileBody(file, num_array, num_of_ints);
    /* End of data collection */
@@ -53,6 +60,9 @@ int main(int argc, char * argv[]) {
    /*Create threads*/
    initializeMutexes(num_threads);
    pthread_t threads[num_threads];
+
+   thread_list = malloc(sizeof(pthread_t)*num_threads);
+   thread_list = threads;
 
    int thread_num = findThreadSize(num_of_ints, num_threads);
 
@@ -108,10 +118,14 @@ int main(int argc, char * argv[]) {
    for(i = 0; i < num_threads; i++) {
       pthread_join(threads[i], NULL);
    }
-
    annihilateMutexes(num_threads);
    pthread_exit(NULL);
    closeFile(file);
+   
+   free(num_list);
+   free(sort_list);
+   free(thread_list);
+   
    exit(1);
 }
 
@@ -196,85 +210,109 @@ void readFileBody(FILE * file, int nums[], int array_size) {
 
 void * alteredBubbleSort(void * thread_request) {
    struct ThreadRequest *request = (struct ThreadRequest *) thread_request;
-   
-   int sorted = 0;
-   while (!sorted) {
+    
+   *(sort_list + request->thread) = 0;
+   while (!(*(sort_list + request->thread))) {
       int start = request->start;
       int stop = request->end;
  
       // Send the large number down.
-      sorted = 1;
+      pthread_mutex_lock(&sort_lock[request->thread]);
+         *(sort_list + request->thread) = 1;
+      pthread_mutex_unlock(&sort_lock[request->thread]);
       int x;
       for (x = start; x < stop; x++) {
          if (*(num_list + x) > *(num_list + x + 1)) {
             
             if(x == start || (x + 1) == start) {
-               //pthread_mutex_lock(&border_lock[request->thread]);
+               printf("here\n");
+               pthread_mutex_lock(&border_lock[request->thread]);
             }
             else if (x == (stop - 1) || (x + 1) == (stop - 1)) {
-               //pthread_mutex_lock(&border_lock[request->thread + 1]);
+               pthread_mutex_lock(&border_lock[request->thread + 1]);
             }
             
             int previous = *(num_list + x);
             *(num_list + x) = *(num_list + x + 1);
             *(num_list + x + 1) = previous;
 
-            sorted = 0;
+            *(sort_list + request->thread) = 0;
 
             if(x == start || (x + 1) == start) {
-               //pthread_mutex_unlock(&border_lock[request->thread]);
+               if(request->thread != 0) {
+                  *(sort_list + request->thread - 1) = 0;
+               }
+               pthread_mutex_unlock(&border_lock[request->thread]);
             }
             else if ( x == (stop - 1) || (x + 1) == (stop - 1)) {
-               //pthread_mutex_unlock(&border_lock[request->thread]);
+               *(sort_list + request->thread + 1) = 0;
+               pthread_mutex_unlock(&border_lock[request->thread + 1]);
             }
          }
       }
  
-      if (sorted) {
+      if (*(sort_list + request->thread)) {
          break;
       }
  
       // Bring the small number up.
-      sorted = 1;
+      pthread_mutex_lock(&sort_lock[request->thread]);
+         *(sort_list + request->thread) = 1;
+      pthread_mutex_unlock(&sort_lock[request->thread]);
       for (x = stop; x > start ; x--) {
          if (*(num_list + (x-1)) > *(num_list + x)) {
             
             if(x == start || (x - 1) == start) {
-               //pthread_mutex_lock(&border_lock[request->thread]);
+               pthread_mutex_lock(&border_lock[request->thread]);
             }
             else if (x == (stop - 1) || (x - 1) == (stop - 1)) {
-               //pthread_mutex_lock(&border_lock[request->thread + 1]);
+               pthread_mutex_lock(&border_lock[request->thread + 1]);
             }
             
             int previous = *(num_list + (x - 1));
             *(num_list + (x - 1)) = *(num_list + x);
             *(num_list + x) = previous;
 
-            sorted = 0;
+            *(sort_list + request->thread) = 0;
             
             if(x == start || (x - 1) == start) {
-               //pthread_mutex_unlock(&border_lock[request->thread]);
+               if(request->thread != 0) {
+                  *(sort_list + request->thread - 1) = 0;
+               }
+               pthread_mutex_unlock(&border_lock[request->thread]);
             }
             else if ( x == (stop - 1) || (x - 1) == (stop - 1)) {
-               //pthread_mutex_unlock(&border_lock[request->thread]);
+               *(sort_list + request->thread + 1) = 0;
+               pthread_mutex_unlock(&border_lock[request->thread + 1]);
             }
          }
       }
    }
 
    free(request);
+   //TODO: mutex/spinlock/check all lists are sorted, then exit
    pthread_exit(0);
 }
 
 void initializeMutexes(int num_threads) {
    // Allocate NumThreads mutexes and conditions.
-   pthread_mutex_t border_lock[num_threads];
-   pthread_cond_t thread_cond[num_threads];
+   border_lock = malloc(sizeof(pthread_mutex_t)*num_threads);
+   pthread_mutex_t border[num_threads];
+   border_lock = border;
+
+   sort_lock = malloc(sizeof(pthread_mutex_t)*num_threads);
+   pthread_mutex_t sort[num_threads];
+   sort_lock = sort;
+
+   thread_cond = malloc(sizeof(pthread_cond_t)*num_threads);
+   pthread_cond_t cond[num_threads];
+   thread_cond = cond;
   
    //Initialize created mutexes and threads.
    int i;
    for (i = 0; i < num_threads; i++) {
       pthread_mutex_init(&border_lock[i], NULL);
+      pthread_mutex_init(&sort_lock[i], NULL);
       pthread_cond_init(&thread_cond[i], NULL);
    }
 }
@@ -282,8 +320,9 @@ void initializeMutexes(int num_threads) {
 void annihilateMutexes(int num_threads) {
    int i;
    for(i = 0; i < num_threads; i++) {
-      //pthread_mutex_unlock(&border_lock[i]); 
-      //pthread_mutex_destroy(&border_lock[i]);
+      // pthread_mutex_unlock(&border_lock[i]); 
+      // pthread_mutex_unlock(&sort_lock[i]); 
+      // pthread_mutex_destroy(&border_lock[i]);
    }
 }
 
