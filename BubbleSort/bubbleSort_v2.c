@@ -17,9 +17,11 @@ struct ThreadRequest {
 pthread_mutex_t * border_lock;
 pthread_mutex_t * sort_lock;
 pthread_cond_t  * thread_cond;
+pthread_mutex_t main_lock;
 pthread_t * thread_list;
 int * num_list;
 int * sort_list;
+int done;
 
 /* End of global variables */
 
@@ -107,24 +109,46 @@ int main(int argc, char * argv[]) {
       }
    }
 
-   /* Print sorted nums */
-   int j;
-   for(j = 0; j < num_of_ints; j++) {
-      printf("%d \n", num_array[j]);
-   }
+   // done = 0;
+    int i;
+    for(i = 0; i < num_threads; i++) {
+   //    pthread_mutex_lock(&main_lock);
+   //       while(done == 0) {
+   //          printf("while\n");
+   //          pthread_cond_wait(&thread_cond[i], &main_lock);
+   //       }  
+   //       int j;
+   //       for(j = 0; j < num_threads; j++) {
+   //          printf("hi\n");
+   //          if(!(*(sort_list + j))) {
+   //             done = 0;
+   //          }
+   //       }
+   //       if(done == 1) {
+   //          pthread_exit(0);
+             pthread_join(threads[i], NULL);
+   //       }
+   //    pthread_mutex_unlock(&main_lock);
+    }
+   
+
 
    /* Clean up threads and close file */
-   int i;
-   for(i = 0; i < num_threads; i++) {
-      pthread_join(threads[i], NULL);
-   }
    annihilateMutexes(num_threads);
-   pthread_exit(NULL);
    closeFile(file);
+
+      /* Print sorted nums */
+   int j;
+   for(j = 0; j < num_of_ints; j++) {
+      printf("%d ", num_array[j]);
+   }
+   printf("\n");
    
-   free(num_list);
-   free(sort_list);
-   free(thread_list);
+   //free(num_list);
+   // free(sort_list);
+   // free(thread_list);
+
+   pthread_exit(NULL);
    
    exit(1);
 }
@@ -215,36 +239,36 @@ void * alteredBubbleSort(void * thread_request) {
    while (!(*(sort_list + request->thread))) {
       int start = request->start;
       int stop = request->end;
- 
+      
       // Send the large number down.
       pthread_mutex_lock(&sort_lock[request->thread]);
          *(sort_list + request->thread) = 1;
       pthread_mutex_unlock(&sort_lock[request->thread]);
+
       int x;
       for (x = start; x < stop; x++) {
          if (*(num_list + x) > *(num_list + x + 1)) {
             
-            if(x == start || (x + 1) == start) {
-               printf("here\n");
+            if(x == start) {
                pthread_mutex_lock(&border_lock[request->thread]);
             }
-            else if (x == (stop - 1) || (x + 1) == (stop - 1)) {
+            else if (x == (stop - 1)) {
                pthread_mutex_lock(&border_lock[request->thread + 1]);
             }
-            
+
             int previous = *(num_list + x);
             *(num_list + x) = *(num_list + x + 1);
             *(num_list + x + 1) = previous;
 
             *(sort_list + request->thread) = 0;
 
-            if(x == start || (x + 1) == start) {
+            if(x == start) {
                if(request->thread != 0) {
                   *(sort_list + request->thread - 1) = 0;
                }
                pthread_mutex_unlock(&border_lock[request->thread]);
             }
-            else if ( x == (stop - 1) || (x + 1) == (stop - 1)) {
+            else if (x == (stop - 1)) {
                *(sort_list + request->thread + 1) = 0;
                pthread_mutex_unlock(&border_lock[request->thread + 1]);
             }
@@ -262,10 +286,10 @@ void * alteredBubbleSort(void * thread_request) {
       for (x = stop; x > start ; x--) {
          if (*(num_list + (x-1)) > *(num_list + x)) {
             
-            if(x == start || (x - 1) == start) {
+            if((x - 1) == start) {
                pthread_mutex_lock(&border_lock[request->thread]);
             }
-            else if (x == (stop - 1) || (x - 1) == (stop - 1)) {
+            else if (x == stop) {
                pthread_mutex_lock(&border_lock[request->thread + 1]);
             }
             
@@ -275,13 +299,13 @@ void * alteredBubbleSort(void * thread_request) {
 
             *(sort_list + request->thread) = 0;
             
-            if(x == start || (x - 1) == start) {
+            if((x - 1) == start) {
                if(request->thread != 0) {
                   *(sort_list + request->thread - 1) = 0;
                }
                pthread_mutex_unlock(&border_lock[request->thread]);
             }
-            else if ( x == (stop - 1) || (x - 1) == (stop - 1)) {
+            else if ( x == stop) {
                *(sort_list + request->thread + 1) = 0;
                pthread_mutex_unlock(&border_lock[request->thread + 1]);
             }
@@ -289,8 +313,17 @@ void * alteredBubbleSort(void * thread_request) {
       }
    }
 
+   // pthread_mutex_lock(&main_lock);
+   //    if (*(sort_list + request->thread)) {
+   //       printf("here\n");
+   //       done = 1;
+   //       pthread_cond_signal(&thread_cond[request->thread]);
+   //       printf("after\n");
+   //       // break;
+   //    }
+   // pthread_mutex_unlock(&main_lock);
+
    free(request);
-   //TODO: mutex/spinlock/check all lists are sorted, then exit
    pthread_exit(0);
 }
 
@@ -307,7 +340,9 @@ void initializeMutexes(int num_threads) {
    thread_cond = malloc(sizeof(pthread_cond_t)*num_threads);
    pthread_cond_t cond[num_threads];
    thread_cond = cond;
-  
+
+   pthread_mutex_init(&main_lock, NULL);
+
    //Initialize created mutexes and threads.
    int i;
    for (i = 0; i < num_threads; i++) {
@@ -320,9 +355,9 @@ void initializeMutexes(int num_threads) {
 void annihilateMutexes(int num_threads) {
    int i;
    for(i = 0; i < num_threads; i++) {
-      // pthread_mutex_unlock(&border_lock[i]); 
+      //pthread_mutex_unlock(&border_lock[i]); 
       // pthread_mutex_unlock(&sort_lock[i]); 
-      // pthread_mutex_destroy(&border_lock[i]);
+      //pthread_mutex_destroy(&border_lock[i]);
    }
 }
 
